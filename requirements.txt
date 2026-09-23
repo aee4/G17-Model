@@ -1,0 +1,10 @@
+torch
+torchvision
+transformers==5.0.0
+streamlit
+huggingface_hub
+safetensors
+numpy
+Pillow
+opencv-python-headless
+scipy
