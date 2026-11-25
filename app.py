@@ -41,7 +41,7 @@ def load_input_check():
     return load_modality_check()
 
 
-st.set_page_config(page_title="G17 · Ultrasound Research Workspace", page_icon="assets/scan-line.svg", layout="wide")
+st.set_page_config(page_title="G17 lesion segmentation", page_icon="assets/scan-line.svg", layout="wide")
 
 
 @st.cache_resource(show_spinner=False)
