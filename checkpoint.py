@@ -16,7 +16,7 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
 
-MODEL_REPOSITORY = "Ahorts/G17-BUS-Segmentation"
+MODEL_REPOSITORY = "aee4/G17-BUS-Segmentation"
 MODEL_SUBFOLDER = "final"          # r5_paper/ holds the reported (paper) ensemble
 MODEL_BRANCH = "main"
 MODEL_REVISION = "main"  # pinned to the upload commit hash once published
