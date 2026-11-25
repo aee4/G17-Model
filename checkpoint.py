@@ -19,7 +19,7 @@ from safetensors.torch import load_file
 MODEL_REPOSITORY = "aee4/G17-BUS-Segmentation"
 MODEL_SUBFOLDER = "final"          # r5_paper/ holds the reported (paper) ensemble
 MODEL_BRANCH = "main"
-MODEL_REVISION = "main"  # pinned to the upload commit hash once published
+MODEL_REVISION = "2eafa71e38fe4fd5133d5810cd7b61bbd80049e7"  # upload commit of final/ + r5_paper/
 MODEL_LABEL = "G17 final: U-Net++ (ResNet-34) × 3 ensemble, flip TTA"
 LOCAL_DIR_ENV = "G17_MODEL_DIR"
 
