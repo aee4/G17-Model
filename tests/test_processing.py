@@ -38,7 +38,8 @@ class ProcessingLifecycle(unittest.TestCase):
 
         def forward(*, pixel_values):
             self.assertEqual(self.events[-1], ("segmenting", "running"))
-            return {"logits": torch.zeros(len(pixel_values), 1, 256, 256)}
+            return {"probabilities": torch.zeros(len(pixel_values), 1, 256, 256),
+                    "member_probabilities": torch.zeros(len(pixel_values), 3, 256, 256)}
 
         checker = Mock()
         checker.classify.side_effect = classify

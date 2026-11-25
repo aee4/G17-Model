@@ -8,7 +8,7 @@ ASSETS = Path(__file__).parent / "assets"
 STAGES = (
     ("checking", "Checking uploaded images"),
     ("loading", "Loading the segmentation model"),
-    ("enhancing", "Enhancing accepted ultrasound images"),
+    ("enhancing", "Preparing accepted ultrasound images"),
     ("segmenting", "Segmenting lesion regions"),
     ("preparing", "Preparing masks and overlays"),
     ("complete", "Analysis complete"),
@@ -79,7 +79,7 @@ def processing_html(state):
             description = "Not run"
         steps.append(f'<li class="{kind}"><span class="g17-step-number">{index:02}</span>'
                      f'<span>{escape(label)}<small>{description}</small></span></li>')
-    counts = "Original images are checked before enhancement."
+    counts = "Original images are checked before segmentation."
     if state.accepted is not None:
         counts = f"{state.accepted} accepted · {state.skipped} skipped"
     waveform = svg_image('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100"><path fill="none" stroke="#6adacc" stroke-width="1.5" d="M0 64H44L55 50L66 70L83 30L97 77L110 56H145L158 43L172 63H240"/></svg>')

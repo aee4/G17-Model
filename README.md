@@ -20,12 +20,25 @@ Local CSS and bundled SVG assets require no animation service or CDN. See
 Streamlit usage telemetry is disabled. Do not upload identifiable patient data.
 
 This Streamlit application demonstrates breast-lesion segmentation with the
-selected Ahortz model: **Exp-25: U-Net + DAG, SRAD + CLAHE**.
-Reported internal test Dice: **82.76%**, not clinical accuracy.
-It applies SRAD despeckling and CLAHE
-enhancement before generating a probability map, binary mask and overlay.
+**G17 final model: a 3-member U-Net++ (ImageNet ResNet-34 encoder) ensemble**.
+Each member averages the scan and its mirror image; the app averages the three
+probability maps. Internal test Dice (266 held-out scans from BUS-BRA, BUSI and
+BUS-UCLM): **89.06%**, not clinical accuracy. The members were trained with Focal
+Tversky loss and scanner-appearance augmentation on BUS-BRA, BUSI, BUS-UCLM and
+BrEaST. Input is the grayscale scan resized to 256 × 256; there is no despeckling
+or CLAHE step.
 
-Before any enhancement, the app runs the pretrained
+Each scan also gets quality signals (agreement between the three models' masks,
+uncertain-boundary ratio, number of regions). A **Check** flag marks scans whose
+signals fall outside the range where the ensemble was reliable; the rule is
+calibrated on the held-out test set and shipped with the weights
+(`review_rule` in `config.json`). It highlights likely weak segmentations but
+will miss some and flag some good ones.
+
+Weights load from a pinned Hugging Face revision (`checkpoint.py`) with SHA-256
+checks and strict key matching, or from a local folder set in `G17_MODEL_DIR`.
+
+Before any segmentation, the app runs the pretrained
 [ModalityScan INT8 ONNX model](https://huggingface.co/vectorsense/modalityscan)
 locally with ONNX Runtime's `CPUExecutionProvider`. No classifier is trained.
 Weights and all four configuration files are pinned to verified commit
