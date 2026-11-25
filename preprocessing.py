@@ -185,3 +185,19 @@ def preprocess_ultrasound(image):
     tensor = torch.from_numpy(np.ascontiguousarray(normalized)).unsqueeze(0).unsqueeze(0)
     return {"original": original_gray, "model_input": resized, "tensor": tensor,
             "original_size": original_gray.shape}
+
+
+def preprocess_exp25(image):
+    """Exp-25 input: SRAD despeckling -> CLAHE -> 256 x 256 (INTER_AREA) -> (x/255 - 0.5)/0.5."""
+    if image is None:
+        raise ValueError("Please upload an ultrasound image.")
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(np.asarray(image))
+    original_gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    despeckled = srad(original_gray)
+    enhanced = apply_clahe(despeckled)
+    resized = cv2.resize(enhanced, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+    normalized = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
+    tensor = torch.from_numpy(np.ascontiguousarray(normalized)).unsqueeze(0).unsqueeze(0)
+    return {"original": original_gray, "despeckled": despeckled, "enhanced": enhanced, "model_input": resized,
+            "tensor": tensor, "original_size": original_gray.shape}
