@@ -2,8 +2,8 @@
 
 Three U-Net++ (ResNet-34 encoder) members trained with the R5 recipe on train + validation
 + BrEaST. Each member is flip-averaged; the ensemble probability is the member mean.
-Weights and config come from a pinned Hugging Face revision, or from a local folder named by
-the G17_MODEL_DIR environment variable (same files: config.json + member_*.safetensors).
+Weights and config come from the final/ folder of a pinned Hugging Face revision, or from a local folder
+named by the G17_MODEL_DIR environment variable (same files: config.json + member_*.safetensors).
 """
 import hashlib
 import json
@@ -16,9 +16,10 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
 
-MODEL_REPOSITORY = "Ahorts/G17-AMFU-Net-Paper"
-MODEL_BRANCH = "final-unetpp-r34-x3"
-MODEL_REVISION = MODEL_BRANCH  # pin to the upload commit hash once published
+MODEL_REPOSITORY = "Ahorts/G17-BUS-Segmentation"
+MODEL_SUBFOLDER = "final"          # r5_paper/ holds the reported (paper) ensemble
+MODEL_BRANCH = "main"
+MODEL_REVISION = "main"  # pinned to the upload commit hash once published
 MODEL_LABEL = "G17 final: U-Net++ (ResNet-34) × 3 ensemble, flip TTA"
 LOCAL_DIR_ENV = "G17_MODEL_DIR"
 
@@ -53,7 +54,7 @@ def _fetch(name):
         if not path.is_file():
             raise FileNotFoundError(f"{name} not found in {LOCAL_DIR_ENV}={local}")
         return str(path)
-    return hf_hub_download(MODEL_REPOSITORY, name, revision=MODEL_REVISION)
+    return hf_hub_download(MODEL_REPOSITORY, f"{MODEL_SUBFOLDER}/{name}", revision=MODEL_REVISION)
 
 
 def _sha256(path):
