@@ -6,12 +6,12 @@ from base64 import b64encode
 
 ASSETS = Path(__file__).parent / "assets"
 STAGES = (
-    ("checking", "Checking uploaded images"),
-    ("loading", "Loading the segmentation model"),
-    ("enhancing", "Preparing accepted ultrasound images"),
-    ("segmenting", "Segmenting lesion regions"),
-    ("preparing", "Preparing masks and overlays"),
-    ("complete", "Analysis complete"),
+    ("checking", "Checking the uploads are ultrasound"),
+    ("loading", "Loading the model"),
+    ("enhancing", "Preparing the scans"),
+    ("segmenting", "Outlining lesions"),
+    ("preparing", "Building masks and overlays"),
+    ("complete", "Analysis finished"),
 )
 
 
@@ -49,7 +49,7 @@ class ProcessingState:
 
 def icon():
     # st.html sanitizes inline SVG; a local data image preserves the icon safely.
-    svg = (ASSETS / "scan-line.svg").read_text(encoding="utf-8").replace('currentColor', '#79e9da')
+    svg = (ASSETS / "scan-line.svg").read_text(encoding="utf-8").replace('currentColor', '#E9A448')
     return svg_image(svg)
 
 
@@ -62,7 +62,7 @@ def processing_html(state):
     active = state.status == "running"
     headline = dict(STAGES)[state.stage]
     if state.status == "rejected":
-        headline = "No images passed the ultrasound input check"
+        headline = "None of the uploads looked like ultrasound"
     elif state.status == "failed":
         headline = "Analysis stopped"
     steps = []
@@ -79,31 +79,31 @@ def processing_html(state):
             description = "Not run"
         steps.append(f'<li class="{kind}"><span class="g17-step-number">{index:02}</span>'
                      f'<span>{escape(label)}<small>{description}</small></span></li>')
-    counts = "Original images are checked before segmentation."
+    counts = "Each upload is checked before it is segmented."
     if state.accepted is not None:
-        counts = f"{state.accepted} accepted · {state.skipped} skipped"
-    waveform = svg_image('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100"><path fill="none" stroke="#6adacc" stroke-width="1.5" d="M0 64H44L55 50L66 70L83 30L97 77L110 56H145L158 43L172 63H240"/></svg>')
+        counts = (f"{state.accepted} scan{'s' if state.accepted != 1 else ''} accepted"
+                  + (f", {state.skipped} skipped" if state.skipped else ""))
+    waveform = svg_image('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100"><ellipse cx="120" cy="52" rx="38" ry="22" fill="none" stroke="#EDE9E2" stroke-opacity=".5" stroke-width="1.2" stroke-dasharray="3 4"/></svg>')
     timeline = f'<ol class="g17-stepper">{"".join(steps)}</ol>'
     if not active:
-        timeline = f'<details class="g17-timeline"><summary>View processing steps</summary>{timeline}</details>'
+        timeline = f'<details class="g17-timeline"><summary>Show steps</summary>{timeline}</details>'
     activity = ('<div class="g17-indeterminate" aria-hidden="true"><i></i></div>'
-                '<small>Work is in progress. Animation illustrates activity, not predictions.</small>') if active else ''
+                '<small>The animation shows that work is running; it is not a prediction.</small>') if active else ''
     return f'''<section class="g17-process {'is-running' if active else 'is-finished'}"
         data-stage="{escape(state.stage)}" data-status="{escape(state.status)}"
         aria-label="Analysis progress" aria-busy="{str(active).lower()}">
       <div class="g17-process-top"><div class="g17-scan" aria-hidden="true">
-        <div class="g17-sweep"></div>{waveform}
-        <span>ILLUSTRATIVE SCAN</span></div><div class="g17-process-copy">
-        <div class="g17-eyebrow">ANALYSIS WORKSPACE</div>
+        <div class="g17-sweep"></div>{waveform}</div><div class="g17-process-copy">
         <h3 role="status" aria-live="polite">{escape(headline)}</h3>
         <p>{escape(counts)}</p>{activity}
       </div></div>{timeline}</section>'''
 
 
 def header_html():
-    return f'''<header class="g17-header"><div class="g17-brand-icon">{icon()}</div>
-      <div class="g17-brand"><strong>G17</strong><span>Breast Ultrasound Segmentation</span></div>
-      <span class="g17-badge"><i></i> RESEARCH DEMO</span></header>'''
+    return f'''<header class="g17-header"><div class="g17-mark">{icon()}</div>
+      <div class="g17-title"><h1>G17 lesion segmentation</h1>
+      <p>Outline breast lesions on ultrasound scans and see how sure the models are.</p></div>
+      <span class="g17-scope">Research use only</span></header>'''
 
 
 def overview_html(accepted, skipped, processed):

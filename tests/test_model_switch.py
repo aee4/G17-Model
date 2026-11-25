@@ -56,7 +56,8 @@ class ModelSwitch(unittest.TestCase):
         self.assertEqual(exp25_load.call_count, 1)
         self.assertEqual(app.session_state["analysis_models"], ["exp25"])
         self.assertIn("enhanced", app.session_state["raw_batch_data"][0])
-        self.assertEqual([t.label for t in app.tabs], ["Probability", "Mask", "Model input", "Enhanced", "SRAD"])
+        self.assertEqual([t.label for t in app.tabs],
+                         ["Outline", "Original", "Probability", "Mask", "Model input", "SRAD + CLAHE", "SRAD only"])
         self.assertIsNone(app.session_state["raw_batch_data"][0]["review"])
 
     def test_compare_runs_each_model_once_and_reports_overlap(self):
