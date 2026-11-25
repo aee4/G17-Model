@@ -1,5 +1,6 @@
 torch
 torchvision
+segmentation-models-pytorch>=0.3
 transformers==5.0.0
 streamlit
 huggingface_hub

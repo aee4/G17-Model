@@ -15,6 +15,7 @@ from checkpoint import (
     MODEL_BRANCH, MODEL_LABEL, MODEL_REPOSITORY, MODEL_REVISION, load_checkpoint,
 )
 from preprocessing import preprocess_ultrasound
+from uncertainty import needs_review, quality_signals
 from modality_check import load_modality_check, screen_uploads
 
 
@@ -79,7 +80,9 @@ def run_batch_inference(uploaded_files, model, stage_callback=None):
         stage_callback("segmenting")
     with torch.inference_mode():
         output = model(pixel_values=batch_tensor)
-        probabilities = torch.sigmoid(output["logits"])
+        probabilities = output["probabilities"]
+        member_probabilities = output["member_probabilities"]
+    rule = getattr(model, "review_rule", None)
 
     if stage_callback:
         stage_callback("preparing")
@@ -88,14 +91,17 @@ def run_batch_inference(uploaded_files, model, stage_callback=None):
         prob_map_256 = probabilities[i, 0].detach().cpu().numpy()
         h, w = item["original_size"]
         prob_map = cv2.resize(prob_map_256, (w, h), interpolation=cv2.INTER_LINEAR)
+        # Quality signals use the model grid and the calibrated 0.5 cut-off, independent of the slider.
+        signals = quality_signals(member_probabilities[i].detach().cpu().numpy())
         results.append(
             {
                 "filename": item["filename"],
                 "original": item["original"],
-                "enhanced": item["enhanced"],
-                "despeckled": item["despeckled"],
+                "model_input": item["model_input"],
                 "probability": prob_map,
                 "original_size": (h, w),
+                "signals": signals,
+                "review": bool(needs_review(signals, rule)) if rule else None,
             }
         )
 
@@ -137,6 +143,8 @@ def compute_derived_results(batch_results, threshold: float):
                 "Lesion Area (px)": f"{lesion_pixels:,}",
                 "Lesion Area (%)": f"{area_pct:.2f}%",
                 "Mean Mask Probability": f"{mean_conf * 100:.1f}%" if lesion_pixels > 0 else "N/A",
+                "Model agreement": f"{item['signals']['agreement'] * 100:.0f}%",
+                "Check": "Review" if item.get("review") else "—",
             }
         )
 
@@ -244,6 +252,9 @@ with st.container(key="threshold_workspace"):
 if "raw_batch_data" in st.session_state:
     derived_results, summary_df = prepared or compute_derived_results(st.session_state["raw_batch_data"], threshold)
     st.success(f"Successfully processed **{len(derived_results)}** scan(s) at threshold **{threshold:.2f}**.")
+    flagged = sum(bool(item.get("review")) for item in derived_results)
+    if flagged:
+        st.warning(f"{flagged} of {len(derived_results)} scan(s) flagged **Check** — see the Batch summary.")
     with st.container(key="inspection_workspace"):
         # Indices are identities: even identical filenames remain independently selectable.
         selected_idx = st.selectbox(
@@ -252,6 +263,10 @@ if "raw_batch_data" in st.session_state:
         )
         item = derived_results[selected_idx]
         h, w = item["original_size"]
+        if item.get("review"):
+            st.warning("**Check this scan.** The ensemble's quality signals fall outside the range where it was "
+                       "reliable on the held-out test set (low agreement between models, an empty mask or an "
+                       "unusually uncertain boundary). Treat this segmentation with extra caution.")
         m1, m2, m3 = st.columns(3)
         m1.metric("Image dimensions", f"{w} × {h}")
         m2.metric("Mask area", f"{item['area_pct']:.2f}%")
@@ -266,15 +281,17 @@ if "raw_batch_data" in st.session_state:
                 st.image(item["overlay"], caption="Overlay · red region / yellow boundary", width="stretch", alt="Segmentation overlay with red mask and yellow boundary")
         else:
             st.image(item["overlay"], caption="Overlay · red region / yellow boundary", width="stretch", alt="Full-width segmentation overlay")
-        enhanced, probability, mask, srad = st.tabs(["Enhanced", "Probability", "Mask", "SRAD"])
-        with enhanced:
-            st.image(item["enhanced"], caption="SRAD + CLAHE enhanced ultrasound", width="stretch", alt="Enhanced ultrasound")
+        probability, mask, model_input = st.tabs(["Probability", "Mask", "Model input"])
+        with model_input:
+            st.image(item["model_input"], caption="Grayscale 256 × 256 model input (no despeckling or CLAHE)",
+                     width="stretch", alt="Model input image")
+            s = item["signals"]
+            st.caption(f"Model agreement {s['agreement'] * 100:.0f}% · uncertain-boundary ratio {s['ambiguity']:.2f} · "
+                       f"{s['components']} region(s). Agreement is the mean Dice between the three models' masks.")
         with probability:
             st.image(item["probability"], caption="Sigmoid probability map · 0.0 to 1.0", width="stretch", clamp=True, alt="Continuous lesion probability map")
         with mask:
             st.image(item["mask"], caption=f"Binary lesion mask · threshold {threshold:.2f}", width="stretch", alt="Binary lesion segmentation mask")
-        with srad:
-            st.image(item["despeckled"], caption="SRAD despeckled ultrasound", width="stretch", alt="Ultrasound after SRAD despeckling")
     st.subheader("Batch summary")
     st.dataframe(summary_df, width="stretch", hide_index=True)
 else:
@@ -288,9 +305,13 @@ if st.session_state.get("skipped_files"):
 with st.container(key="technical_details"):
     with st.expander("Model & research information"):
         st.write(f"**{MODEL_LABEL}**")
-        st.write("Reported internal test Dice: **82.76%**. This is not clinical accuracy.")
-        st.caption("4-level U-Net with DAG enabled and MFEF disabled. Input: 256 × 256. "
-                   "Strict safetensors loading. SRAD + CLAHE and training normalization are preserved.")
+        st.write("Internal test Dice (266 held-out scans, BUS-BRA · BUSI · BUS-UCLM): **89.06%**. "
+                 "This is not clinical accuracy.")
+        st.caption("Three U-Net++ models (ImageNet ResNet-34 encoder) trained with Focal Tversky loss and "
+                   "scanner-appearance augmentation on BUS-BRA, BUSI, BUS-UCLM and BrEaST. Each model averages the "
+                   "image and its mirror; the app averages the three. Input: grayscale 256 × 256, no despeckling. "
+                   "Strict safetensors loading with SHA-256 checks. The Check flag uses a rule calibrated on the "
+                   "held-out test set; it highlights likely weak segmentations but will miss some and flag some good ones.")
         st.text(f"Repository: {MODEL_REPOSITORY}\nRevision: {MODEL_REVISION}\nExperiment branch: {MODEL_BRANCH}")
         st.caption("ModalityScan checks original images before enhancement. Its acceptance policy and calibration "
                    "are fixed. Open-set rejection is unmeasured. No reflection padding is applied at inference.")

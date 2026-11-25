@@ -65,7 +65,8 @@ class AppGate(unittest.TestCase):
     def test_mixed_batch_and_threshold_rerun(self):
         checker = Mock()
         checker.classify.side_effect = [Decision("US", "modality", .99), Decision("CT", "modality", .99)]
-        model = Mock(return_value={"logits": torch.zeros((1, 1, 256, 256))})
+        model = Mock(return_value={"probabilities": torch.zeros((1, 1, 256, 256)),
+                                    "member_probabilities": torch.zeros((1, 3, 256, 256))})
         with patch("streamlit.file_uploader", return_value=self.files), \
                 patch("modality_check.load_modality_check", return_value=checker), \
                 patch("checkpoint.load_checkpoint", return_value=model):

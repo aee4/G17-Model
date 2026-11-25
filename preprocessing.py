@@ -170,49 +170,18 @@ def apply_clahe(
 
 
 def preprocess_ultrasound(image):
+    """Grayscale -> 256 x 256 (INTER_AREA) -> (x/255 - 0.5)/0.5, exactly as the final models were trained.
+
+    The final ensemble uses the raw image: no SRAD despeckling or CLAHE (those helpers remain above
+    for the earlier Exp-25 pipeline and for comparison only).
+    """
     if image is None:
-        raise ValueError(
-            "Please upload an ultrasound image."
-        )
-
+        raise ValueError("Please upload an ultrasound image.")
     if not isinstance(image, Image.Image):
-        image = Image.fromarray(
-            np.asarray(image)
-        )
-
-    original_gray = np.asarray(
-        image.convert("L"),
-        dtype=np.uint8,
-    )
-
-    despeckled = srad(original_gray)
-    enhanced = apply_clahe(despeckled)
-
-    resized = cv2.resize(
-        enhanced,
-        (IMAGE_SIZE, IMAGE_SIZE),
-        interpolation=cv2.INTER_AREA,
-    )
-
-    normalized = (
-        resized.astype(np.float32) / 255.0
-    )
-
-    # Same normalization used during model training.
-    normalized = (
-        normalized - 0.5
-    ) / 0.5
-
-    tensor = torch.from_numpy(
-        np.ascontiguousarray(normalized)
-    )
-
-    tensor = tensor.unsqueeze(0).unsqueeze(0)
-
-    return {
-        "original": original_gray,
-        "despeckled": despeckled,
-        "enhanced": enhanced,
-        "tensor": tensor,
-        "original_size": original_gray.shape,
-    }
+        image = Image.fromarray(np.asarray(image))
+    original_gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    resized = cv2.resize(original_gray, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+    normalized = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
+    tensor = torch.from_numpy(np.ascontiguousarray(normalized)).unsqueeze(0).unsqueeze(0)
+    return {"original": original_gray, "model_input": resized, "tensor": tensor,
+            "original_size": original_gray.shape}
