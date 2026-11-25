@@ -1,13 +1,22 @@
 [server]
 maxUploadSize = 20
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
 
 [theme]
 base = "dark"
-primaryColor = "#65DCCB"
-backgroundColor = "#0B1422"
-secondaryBackgroundColor = "#142338"
-textColor = "#E3EDF6"
-font = "sans serif"
+primaryColor = "#EDE9E2"
+backgroundColor = "#1F1E1B"
+secondaryBackgroundColor = "#2A2825"
+textColor = "#EDE9E2"
+borderColor = "#3A3834"
+baseRadius = "8px"
+font = "Atkinson Hyperlegible Next, sans-serif"
+
+[[theme.fontFaces]]
+family = "Atkinson Hyperlegible Next"
+url = "app/static/AtkinsonHyperlegibleNext.ttf"
+style = "normal"
+weight = "200 800"

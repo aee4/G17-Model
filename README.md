@@ -1,6 +1,6 @@
 # G17 AMFU-Net Streamlit Demo
 
-A navy and teal research workspace built with native Streamlit controls. Add
+A warm-graphite "reading room" workspace built with native Streamlit controls: the scan is the hero, controls stay ivory and amber is reserved for the model's outline and Check flags. Text uses the bundled Atkinson Hyperlegible Next typeface (SIL OFL, `static/`). Add
 de-identified breast ultrasound scans, run analysis, then inspect large original
 and overlay comparisons, enhanced scans, probability maps and binary masks.
 Numbered scan selections distinguish duplicate filenames. The threshold beside
