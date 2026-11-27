@@ -26,8 +26,36 @@ MODELS = {
     "exp25": dict(label="Exp-25 (AMFU-Net)", dice="82.76%",
                   loader=lambda: checkpoint_exp25.load_exp25(), preprocess=preprocess_exp25),
 }
-MODEL_CHOICES = {"final": "G17 final (U-Net++ ×3, 89.06%)", "exp25": "Exp-25 AMFU-Net (SRAD + CLAHE, 82.76%)",
-                 "compare": "Compare both"}
+MODEL_CHOICES = {"final": "Current model", "exp25": "Previous model", "compare": "Compare both"}
+PLAIN_NAMES = {"final": "the current model", "exp25": "the previous model"}
+
+# Plain-language labels shown by default. Raw values stay available under "Advanced details".
+CONFIDENCE_BANDS = ((.85, "High"), (.70, "Moderate"))   # on mean probability inside the mask; not calibrated
+CONFIDENCE_HELP = ("Average model certainty inside the outline: High at 85% or more, Moderate at 70–85%, Low below "
+                   "70%. These bands are a reading aid, not a calibrated accuracy estimate.")
+
+
+def confidence_label(mean_conf, detected=True):
+    if not detected:
+        return "No lesion found"
+    return next((label for cut, label in CONFIDENCE_BANDS if mean_conf >= cut), "Low")
+
+
+def size_text(area_pct):
+    if area_pct <= 0:
+        return "No lesion found"
+    return "Under 1%" if area_pct < 1 else f"About {round(area_pct)}%"
+
+
+def status_text(item):
+    """(status, reason) for the default view; status is None when the model has no Check rule."""
+    if item.get("review") is None:
+        return None, ""
+    if not item["review"]:
+        return "Reliable", "The three models agree closely on this outline."
+    if item["signals"]["area_fraction"] == 0:
+        return "Check", "No lesion was found. Look at the scan yourself."
+    return "Check", "The three models disagree on where the lesion edge is. Look at the outline closely."
 
 
 def clear_analysis():
@@ -168,16 +196,19 @@ def compute_derived_results(batch_results, threshold: float):
             }
         )
 
+        status, _ = status_text(item)
         summary_rows.append(
             {
                 "File": item["filename"],
-                "Size": f"{w} × {h}",
+                "Lesion size (of image)": size_text(area_pct),
+                "Confidence": confidence_label(mean_conf, lesion_pixels > 0),
+                "Status": status or "Not checked",
+                "Image size": f"{w} × {h}",
                 "Lesion area": f"{area_pct:.2f}%",
                 "Lesion pixels": f"{lesion_pixels:,}",
                 "Mean probability": f"{mean_conf * 100:.1f}%" if lesion_pixels > 0 else "No lesion",
             }
-            | ({"Model agreement": f"{item['signals']['agreement'] * 100:.0f}%",
-                "Check": "Check" if item["review"] else ""} if item.get("review") is not None else {})
+            | ({"Model agreement": f"{item['signals']['agreement'] * 100:.1f}%"} if item.get("review") is not None else {})
         )
 
     return derived, pd.DataFrame(summary_rows)
@@ -193,7 +224,8 @@ with st.container(key="upload_workspace"):
     model_choice = st.radio(
         "Model", options=list(MODEL_CHOICES), format_func=MODEL_CHOICES.get, horizontal=True,
         key="model_choice", on_change=clear_analysis,
-        help="G17 final is the current model. Exp-25 is the earlier AMFU-Net. Compare both runs the two on the same scans.",
+        help="Current model: G17 U-Net++ ensemble (89.06% Dice on 266 held-out test scans). Previous model: Exp-25 "
+             "AMFU-Net (82.76%). Compare both runs the two on the same scans.",
     )
     uploaded_files = st.file_uploader(
         "Breast ultrasound scans", type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
@@ -281,18 +313,18 @@ if state is not None and state.status == "rejected":
 with st.container(key="inspection_workspace"):
     st.html('<h2 class="g17-h2">Results</h2>')
     if "raw_batch_data" not in st.session_state:
-        st.html('<p class="g17-empty">Analyze scans to see the outlined lesion, the probability map and how '
-                'confident the model is for each scan.</p>')
+        st.html('<p class="g17-empty">Analyze scans to see the outlined lesion and whether each outline needs '
+                'a closer look.</p>')
     else:
         model_keys = st.session_state.get("analysis_models", ["final"])
         primary = MODELS[model_keys[0]]
         n_scans = len(st.session_state["raw_batch_data"])
         flagged = sum(bool(r.get("review")) for r in st.session_state["raw_batch_data"])
-        run_line = f"<b>{n_scans} scan{'s' if n_scans != 1 else ''}</b> analyzed with <b>{primary['label']}</b>"
+        run_line = f"<b>{n_scans} scan{'s' if n_scans != 1 else ''}</b> analyzed with {PLAIN_NAMES[model_keys[0]]}"
         if "compare_batch_data" in st.session_state:
-            run_line += f" and <b>{MODELS[model_keys[1]]['label']}</b>"
+            run_line += f" and {PLAIN_NAMES[model_keys[1]]}"
         if flagged:
-            run_line += f". <em>{flagged} flagged to check</em>"
+            run_line += f". <em>{flagged} need{'s' if flagged == 1 else ''} checking</em>"
         st.html(f'<p class="g17-run">{run_line}.</p>')
         viewer, rail = st.columns([5, 2], gap="large")
         with rail:
@@ -300,11 +332,14 @@ with st.container(key="inspection_workspace"):
                 # Indices are identities: even identical filenames remain independently selectable.
                 names = [f"{i + 1}. {r['filename']}" for i, r in enumerate(st.session_state["raw_batch_data"])]
                 selected_idx = st.selectbox("Scan", options=list(range(n_scans)), format_func=names.__getitem__)
-                threshold = st.slider(
-                    "Mask threshold", min_value=.10, max_value=.90, value=.50, step=.05, key="threshold",
-                    help="Pixels whose probability is at or above this value join the mask. Changing it reuses the "
-                         "saved probability maps, so nothing is re-run.",
-                )
+                stats_slot = st.container(key="result_rail_stats")
+                advanced = st.expander("Advanced details")
+                with advanced:
+                    threshold = st.slider(
+                        "Mask threshold", min_value=.10, max_value=.90, value=.50, step=.05, key="threshold",
+                        help="Lower gives a larger outline, higher a tighter one. Default 0.50. Changing it reuses "
+                             "the saved results, so nothing is re-run.",
+                    )
         derived_results, summary_df = compute_derived_results(st.session_state["raw_batch_data"], threshold)
         compare_results = None
         if "compare_batch_data" in st.session_state:
@@ -312,79 +347,95 @@ with st.container(key="inspection_workspace"):
         item = derived_results[selected_idx]
         h, w = item["original_size"]
 
-        with rail:
-            with st.container(key="result_rail_stats"):
-                if item.get("review"):
-                    st.html('<div class="g17-flag"><b>Check this scan.</b> The three models disagree more than they '
-                            'did on scans they segmented well, or no lesion was found. Look at the outline closely.</div>')
-                elif item.get("review") is False:
-                    st.html('<div class="g17-ok">The three models agree on this scan.</div>')
-                if compare_results:
-                    other = compare_results[selected_idx]
-                    st.metric("Lesion area, G17 final", f"{item['area_pct']:.2f}%")
-                    st.metric("Lesion area, Exp-25", f"{other['area_pct']:.2f}%",
-                              delta=f"{other['area_pct'] - item['area_pct']:+.2f} pts", delta_color="off")
-                    st.metric("Overlap between the two masks", f"{mask_dice(item['mask'], other['mask']) * 100:.1f}%",
-                              help="Dice overlap: 100% means both models outlined exactly the same pixels.")
-                else:
-                    st.metric("Lesion area", f"{item['area_pct']:.2f}%", help=f"{item['lesion_pixels']:,} pixels of {w} × {h}.")
-                    st.metric("Mean probability inside the mask",
-                              f"{item['mean_conf'] * 100:.1f}%" if item["lesion_detected"] else "No lesion found")
-                    if item.get("review") is not None:
-                        st.metric("Agreement between the three models", f"{item['signals']['agreement'] * 100:.0f}%",
-                                  help="Mean Dice overlap between the three ensemble members' masks. Below 93.6% the "
-                                       "scan is flagged; on the held-out test set this caught 7 of 8 failed segmentations.")
+        status, reason = status_text(item)
+        with stats_slot:
+            if status == "Check":
+                st.html(f'<div class="g17-flag"><b>Please check this outline.</b> {reason}</div>')
+            elif status == "Reliable":
+                st.html(f'<div class="g17-ok"><b>Outline looks reliable.</b> {reason}</div>')
+            else:
+                st.html('<div class="g17-ok">No reliability check for the previous model. It is a single network, '
+                        'so there is nothing to compare its outline against.</div>')
+            if compare_results:
+                other = compare_results[selected_idx]
+                st.metric("Lesion size, current model", size_text(item["area_pct"]), help="Share of the image inside the outline.")
+                st.metric("Lesion size, previous model", size_text(other["area_pct"]), help="Share of the image inside the outline.")
+                st.metric("Overlap between the two outlines", f"{mask_dice(item['mask'], other['mask']) * 100:.0f}%",
+                          help="100% means both models outlined exactly the same area.")
+            else:
+                st.metric("Lesion size", size_text(item["area_pct"]), help="Share of the image inside the outline.")
+                st.metric("Confidence", confidence_label(item["mean_conf"], item["lesion_detected"]),
+                          help=CONFIDENCE_HELP)
+        with advanced:
+            st.metric("Lesion area", f"{item['area_pct']:.2f}%", help=f"{item['lesion_pixels']:,} pixels of {w} × {h}.")
+            st.metric("Mean probability inside the mask",
+                      f"{item['mean_conf'] * 100:.1f}%" if item["lesion_detected"] else "No lesion found")
+            if item.get("review") is not None:
+                st.metric("Model agreement", f"{item['signals']['agreement'] * 100:.1f}%",
+                          help="Mean Dice overlap between the three ensemble members' masks.")
+                st.metric("Separate regions", f"{item['signals']['components']}")
+                st.caption("Check rule: flag when model agreement is below 93.57% or the mask is empty (both at the "
+                           "0.50 cut-off). On 266 held-out test scans it flagged 12% and caught 7 of 8 failed outlines.")
+            if compare_results:
+                st.metric("Lesion area, previous model", f"{other['area_pct']:.2f}%")
 
         with viewer:
             if compare_results:
                 other = compare_results[selected_idx]
-                side, difference, original = st.tabs(["Side by side", "Difference", "Original"])
+                side, difference, original = st.tabs(["Side by side", "Differences", "Original"])
                 with side:
                     left, right = st.columns(2, gap="small")
-                    left.image(item["overlay"], caption=f"G17 final ({MODELS['final']['dice']} test Dice)",
+                    left.image(item["overlay"], caption="Current model",
                                width="stretch", alt="G17 final model outline")
                     right.image(create_overlay(other["original"], other["mask"], BLUE),
-                                caption=f"Exp-25 ({MODELS['exp25']['dice']} test Dice)", width="stretch",
+                                caption="Previous model", width="stretch",
                                 alt="Exp-25 model outline")
                 with difference:
                     st.image(difference_overlay(item["original"], item["mask"], other["mask"]), width="stretch",
                              alt="Where the two models agree and differ")
                     st.html('<div class="g17-legend"><span><i style="background:#EDE9E2"></i>Both models</span>'
-                            '<span><i style="background:#E9A448"></i>G17 final only</span>'
-                            '<span><i style="background:#8AB8E6"></i>Exp-25 only</span></div>')
+                            '<span><i style="background:#E9A448"></i>Current model only</span>'
+                            '<span><i style="background:#8AB8E6"></i>Previous model only</span></div>')
                 with original:
                     st.image(item["original"], width="stretch", alt="Original ultrasound scan")
-                st.caption("Both models see the same scan. Exp-25 sees it after SRAD despeckling and CLAHE; G17 final "
-                           "sees the raw grayscale image. Test Dice values come from the same 266 held-out scans.")
+                st.caption("The previous model sees the scan after noise smoothing and contrast enhancement; the "
+                           "current model sees the original image.")
             else:
                 extra = [k for k in ("enhanced", "despeckled") if k in item]
-                names = ["Outline", "Original", "Probability", "Mask", "Model input"] + \
-                        [{"enhanced": "SRAD + CLAHE", "despeckled": "SRAD only"}[k] for k in extra]
-                tabs = st.tabs(names)
-                with tabs[0]:
+                outline_tab, original_tab = st.tabs(["Outline", "Original"])
+                with outline_tab:
                     st.image(item["overlay"], width="stretch", alt="Scan with the predicted lesion outlined")
-                with tabs[1]:
+                with original_tab:
                     st.image(item["original"], width="stretch", alt="Original ultrasound scan")
-                with tabs[2]:
-                    st.image(item["probability"], caption="Brighter means the model is more sure the pixel is lesion.",
-                             width="stretch", clamp=True, alt="Lesion probability map")
-                with tabs[3]:
-                    st.image(item["mask"], caption=f"Pixels at or above {threshold:.2f}", width="stretch",
-                             alt="Binary lesion mask")
-                with tabs[4]:
-                    caption = ("256 × 256 input after SRAD + CLAHE" if extra else
-                               "256 × 256 grayscale input. This model uses no despeckling or contrast enhancement.")
-                    st.image(item["model_input"], caption=caption, width="stretch", alt="Model input image")
-                for tab, key in zip(tabs[5:], extra):
-                    with tab:
-                        st.image(item[key], width="stretch", alt=f"{key} image")
+                with st.expander("Advanced details: probability map, mask and model input"):
+                    names = ["Probability", "Mask", "Model input"] + \
+                            [{"enhanced": "SRAD + CLAHE", "despeckled": "SRAD only"}[k] for k in extra]
+                    tabs = st.tabs(names)
+                    with tabs[0]:
+                        st.image(item["probability"], caption="Brighter means the model is more sure the pixel is lesion.",
+                                 width="stretch", clamp=True, alt="Lesion probability map")
+                    with tabs[1]:
+                        st.image(item["mask"], caption=f"Pixels at or above {threshold:.2f}", width="stretch",
+                                 alt="Binary lesion mask")
+                    with tabs[2]:
+                        caption = ("256 × 256 input after SRAD + CLAHE" if extra else
+                                   "256 × 256 grayscale input. This model uses no despeckling or contrast enhancement.")
+                        st.image(item["model_input"], caption=caption, width="stretch", alt="Model input image")
+                    for tab, key in zip(tabs[3:], extra):
+                        with tab:
+                            st.image(item[key], width="stretch", alt=f"{key} image")
 
+        basic = ["File", "Lesion size (of image)", "Confidence", "Status"]
         if compare_results:
-            summary_df["Exp-25 area"] = [f"{r['area_pct']:.2f}%" for r in compare_results]
-            summary_df["Overlap with Exp-25"] = [f"{mask_dice(a['mask'], b['mask']) * 100:.1f}%"
-                                                 for a, b in zip(derived_results, compare_results)]
-        st.markdown("**All scans**")
-        st.dataframe(summary_df, width="stretch", hide_index=True)
+            summary_df["Previous model size (of image)"] = [size_text(r["area_pct"]) for r in compare_results]
+            summary_df["Overlap with previous model"] = [f"{mask_dice(a['mask'], b['mask']) * 100:.0f}%"
+                                                         for a, b in zip(derived_results, compare_results)]
+            basic += ["Previous model size (of image)", "Overlap with previous model"]
+        summary_df = summary_df.sort_values("Status", key=lambda col: col != "Check", kind="stable")
+        head, toggle = st.columns([3, 1], vertical_alignment="center")
+        head.markdown("**All scans**")
+        technical = toggle.toggle("Show technical columns", key="show_technical")
+        st.dataframe(summary_df if technical else summary_df[basic], width="stretch", hide_index=True)
 
 if st.session_state.get("skipped_files"):
     st.markdown("**Skipped uploads**")
