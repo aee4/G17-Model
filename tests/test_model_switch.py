@@ -72,6 +72,17 @@ class ModelSwitch(unittest.TestCase):
         app.slider[0].set_value(.7).run()   # threshold changes reuse both saved results
         self.assertEqual((final.call_count, exp25.call_count), (1, 1))
 
+    def test_default_view_is_plain_language(self):
+        final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
+        app, _, _ = self.run_choice("final", final, exp25)
+        self.assertEqual([t.label for t in app.tabs][:2], ["Outline", "Original"])
+        labels = [m.label for m in app.metric]
+        self.assertEqual(labels[:2], ["Lesion size", "Confidence"])
+        self.assertIn(app.metric[1].value, {"High", "Moderate", "Low", "No lesion found"})
+        self.assertEqual(list(app.dataframe[0].value.columns), ["File", "Lesion size (of image)", "Confidence", "Status"])
+        app.toggle(key="show_technical").set_value(True).run()
+        self.assertIn("Model agreement", list(app.dataframe[0].value.columns))
+
     def test_switching_model_clears_previous_results(self):
         final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
         app, _, _ = self.run_choice("final", final, exp25)
