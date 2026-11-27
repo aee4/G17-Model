@@ -13,6 +13,7 @@ secondaryBackgroundColor = "#2A2825"
 textColor = "#EDE9E2"
 borderColor = "#3A3834"
 baseRadius = "8px"
+baseFontSize = 17
 font = "Atkinson Hyperlegible Next, sans-serif"
 
 [[theme.fontFaces]]
