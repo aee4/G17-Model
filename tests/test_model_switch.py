@@ -1,4 +1,4 @@
-"""Model selector: Exp-25 path keeps SRAD/CLAHE views, Compare runs both models once each (mocked weights)."""
+"""Single deployed model: plain-language view by default; Exp-25 adapter kept for later comparisons (mocked weights)."""
 from io import BytesIO
 from pathlib import Path
 import unittest
@@ -21,12 +21,7 @@ def ensemble_forward(*, pixel_values):
     return {"probabilities": p, "member_probabilities": p.repeat(1, 3, 1, 1)}
 
 
-def exp25_forward(*, pixel_values):
-    p = torch.zeros(len(pixel_values), 1, 256, 256); p[:, :, 96:224, 64:192] = .9
-    return {"probabilities": p, "member_probabilities": p}
-
-
-class ModelSwitch(unittest.TestCase):
+class DeployedModel(unittest.TestCase):
     def setUp(self):
         st.cache_resource.clear()
         file = BytesIO()
@@ -36,46 +31,28 @@ class ModelSwitch(unittest.TestCase):
         self.checker = Mock()
         self.checker.classify.return_value = Decision("US", "modality", .99)
 
-    def run_choice(self, choice, final, exp25):
+    def run_app(self, final):
         final.review_rule = {"metric": "agreement", "direction": "below", "threshold": 0.9357}
-        exp25.review_rule = None
         with patch("streamlit.file_uploader", return_value=self.files), \
                 patch("modality_check.load_modality_check", return_value=self.checker), \
                 patch("checkpoint.load_checkpoint", return_value=final) as final_load, \
-                patch("checkpoint_exp25.load_exp25", return_value=exp25) as exp25_load:
+                patch("checkpoint_exp25.load_exp25") as exp25_load:
             app = AppTest.from_file(APP_PATH, default_timeout=60).run()
-            app.radio(key="model_choice").set_value(choice).run()
             app.button[0].click().run()
             self.assertFalse(app.exception)
             return app, final_load, exp25_load
 
-    def test_exp25_only_loads_legacy_model_and_shows_srad_tabs(self):
-        final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
-        app, final_load, exp25_load = self.run_choice("exp25", final, exp25)
-        final_load.assert_not_called()
-        self.assertEqual(exp25_load.call_count, 1)
-        self.assertEqual(app.session_state["analysis_models"], ["exp25"])
-        self.assertIn("enhanced", app.session_state["raw_batch_data"][0])
-        self.assertEqual([t.label for t in app.tabs],
-                         ["Outline", "Original", "Probability", "Mask", "Model input", "SRAD + CLAHE", "SRAD only"])
-        self.assertIsNone(app.session_state["raw_batch_data"][0]["review"])
-
-    def test_compare_runs_each_model_once_and_reports_overlap(self):
-        final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
-        app, final_load, exp25_load = self.run_choice("compare", final, exp25)
-        self.assertEqual((final.call_count, exp25.call_count), (1, 1))
-        self.assertEqual(app.session_state["analysis_models"], ["final", "exp25"])
-        self.assertIn("compare_batch_data", app.session_state)
-        overlap = [m for m in app.metric if "Overlap" in m.label]
-        self.assertEqual(len(overlap), 1)
-        self.assertTrue(overlap[0].value.endswith("%"))
-        app.slider[0].set_value(.7).run()   # threshold changes reuse both saved results
-        self.assertEqual((final.call_count, exp25.call_count), (1, 1))
+    def test_no_model_selector_and_only_deployed_model_loads(self):
+        final = Mock(side_effect=ensemble_forward)
+        app, final_load, exp25_load = self.run_app(final)
+        self.assertEqual(len(app.radio), 0)
+        self.assertEqual(final_load.call_count, 1)
+        exp25_load.assert_not_called()
+        self.assertNotIn("compare_batch_data", app.session_state)
 
     def test_default_view_is_plain_language(self):
-        final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
-        app, _, _ = self.run_choice("final", final, exp25)
-        self.assertEqual([t.label for t in app.tabs][:2], ["Outline", "Original"])
+        app, _, _ = self.run_app(Mock(side_effect=ensemble_forward))
+        self.assertEqual([t.label for t in app.tabs], ["Outline", "Original", "Probability", "Mask", "Model input"])
         labels = [m.label for m in app.metric]
         self.assertEqual(labels[:2], ["Lesion size", "Confidence"])
         self.assertIn(app.metric[1].value, {"High", "Moderate", "Low", "No lesion found"})
@@ -83,12 +60,11 @@ class ModelSwitch(unittest.TestCase):
         app.toggle(key="show_technical").set_value(True).run()
         self.assertIn("Model agreement", list(app.dataframe[0].value.columns))
 
-    def test_switching_model_clears_previous_results(self):
-        final, exp25 = Mock(side_effect=ensemble_forward), Mock(side_effect=exp25_forward)
-        app, _, _ = self.run_choice("final", final, exp25)
-        self.assertIn("raw_batch_data", app.session_state)
-        app.radio(key="model_choice").set_value("exp25").run()
-        self.assertNotIn("raw_batch_data", app.session_state)
+    def test_threshold_change_reuses_saved_results(self):
+        final = Mock(side_effect=ensemble_forward)
+        app, _, _ = self.run_app(final)
+        app.slider[0].set_value(.7).run()
+        self.assertEqual(final.call_count, 1)
 
     def test_exp25_adapter_contract(self):
         inner = Mock(return_value={"logits": torch.zeros(2, 1, 8, 8)})
