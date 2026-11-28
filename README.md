@@ -28,12 +28,10 @@ Tversky loss and scanner-appearance augmentation on BUS-BRA, BUSI, BUS-UCLM and
 BrEaST. Input is the grayscale scan resized to 256 × 256; there is no despeckling
 or CLAHE step.
 
-A **Segmentation model** selector switches between the deployed ensemble, the
-earlier **Exp-25 AMFU-Net** (U-Net + DAG on SRAD + CLAHE input, 82.76% internal
-test Dice; its Enhanced and SRAD views return when it is selected) and **Compare
-both**, which runs the two models on the same scans and shows their overlays side
-by side with a difference map (green both, magenta final only, cyan Exp-25 only)
-and the Dice overlap between the two masks.
+The app runs only this ensemble. The earlier Exp-25 AMFU-Net (82.76% internal
+test Dice) is no longer offered in the interface; its loader (`checkpoint_exp25.py`)
+and validation notes stay in the repository so a comparison mode can return when
+a newer model is ready to test against the current one.
 
 Each scan also gets quality signals (agreement between the three models' masks,
 uncertain-boundary ratio, number of regions). A **Check** flag marks scans whose
